@@ -39,6 +39,7 @@ baseParam.SNRdB         = snr_list(1);
 baseParam.first_F       = firstF_list(1);
 baseParam.bmax_initial  = bmax_list(1);
 baseParam.MODNUM        = mod_list(1);
+baseParam.MODTYPE       = "PAM";        % "PAM" or "QAM"
 baseParam.TXD_N         = 20090;
 
 baseParam.hFLpS         = 50;
@@ -62,7 +63,9 @@ winBase = struct('first_C',-3,'C_max',15,'first_F',0,'F_max',15);
 x_train_by_mod = cell(1, numel(mod_list));
 rng(1);
 for im = 1:numel(mod_list)
-    x_train_by_mod{im} = generate_PAM(mod_list(im), baseParam.TXD_N);
+    tmpParam = baseParam;
+    tmpParam.MODNUM = mod_list(im);
+    x_train_by_mod{im} = generate_symbols(tmpParam, baseParam.TXD_N);
 end
 
 % 2-2) 理論ChanFrameを cutoffごとに作る（cutoff以外が固定ならこれでOK）
@@ -141,12 +144,14 @@ if usePartialExp
         % -------------------------
         % 暫定：複素を real に丸める（TODO: 後で必ず直す）
         % -------------------------
-        if any(abs(imag(coeffs_tmp.ChannelCoeff)) > 1e-12) || abs(imag(coeffs_tmp.NormRef)) > 1e-12
-            warning('coeffs_exp is complex. TEMP HACK: using real(coeffs_exp). TODO: implement complex rotation handling.');
+        if upper(string(baseParam.MODTYPE)) == "PAM"
+            if any(abs(imag(coeffs_tmp.ChannelCoeff)) > 1e-12) || abs(imag(coeffs_tmp.NormRef)) > 1e-12
+                warning('coeffs_exp is complex. PAM mode: using real(coeffs_exp).');
+            end
+            coeffs_tmp.ChannelCoeff = real(coeffs_tmp.ChannelCoeff);
+            coeffs_tmp.FilterCoeff  = real(coeffs_tmp.FilterCoeff);
+            coeffs_tmp.NormRef      = real(coeffs_tmp.NormRef);
         end
-        coeffs_tmp.ChannelCoeff = real(coeffs_tmp.ChannelCoeff);
-        coeffs_tmp.FilterCoeff  = real(coeffs_tmp.FilterCoeff);
-        coeffs_tmp.NormRef      = real(coeffs_tmp.NormRef);
 
         coeffs_exp_by_firstF{iF} = coeffs_tmp;
     end

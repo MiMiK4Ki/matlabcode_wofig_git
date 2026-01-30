@@ -92,9 +92,22 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
             error("mode must be 'woTHP' or 'wTHP'.");
     end
 
-    % hard decision（PAMレベルへ）
-    [RX_sym_idx, ~] = pam_to_symbols(real(rx_soft), Mmod);
-    rx_hard = levels_from_sym(RX_sym_idx, Mmod);
+    modtype = "PAM";
+    if isfield(param, "MODTYPE") && ~isempty(param.MODTYPE)
+        modtype = upper(string(param.MODTYPE));
+    elseif ~isreal(x_train)
+        modtype = "QAM";
+    end
+
+    % hard decision（PAM/QAM）
+    switch modtype
+        case "QAM"
+            [RX_sym_idx, const] = qam_to_symbols(rx_soft, Mmod);
+            rx_hard = const(RX_sym_idx);
+        otherwise
+            [RX_sym_idx, ~] = pam_to_symbols(real(rx_soft), Mmod);
+            rx_hard = levels_from_sym(RX_sym_idx, Mmod);
+    end
 
     % TX と RX を同じ横軸に合わせる
     Kc = K_use - shift_sym;
@@ -122,29 +135,13 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     n2 = min(numel(yN), idx_rx(end) + 2*NoSpS);
     n  = n1:n2;
 
-    % ===== オーバレイプロット =====
-    figure; hold on;
-
-    plot(n, real(yN(n)), 'DisplayName','y\_wf / scale (continuous)');
-    plot(idx_common, real(y_smp_common), '.', 'DisplayName','samples (y\_smp)');
-    plot(idx_common, real(rx_soft_common), 'x', 'DisplayName','RX soft');
-    stem(idx_common, real(rx_hard_common), 'filled', 'DisplayName','RX hard');
-    stem(idx_common, real(tx_train_common), 'DisplayName','TX x\_train');
-
-    if ~isempty(tx_dk_common)
-        stem(idx_common, real(tx_dk_common), 'DisplayName','TX dk');
+    % ===== オーバレイプロット（実部/虚部で分離）=====
+    local_plot_component("Real", @real, n, yN, idx_common, y_smp_common, rx_soft_common, rx_hard_common, ...
+        tx_train_common, tx_dk_common, lin_conv_output, tag, mode, Kc, shift_sym);
+    if ~isreal(yN) || ~isreal(tx_train_common) || ~isreal(rx_soft_common)
+        local_plot_component("Imag", @imag, n, yN, idx_common, y_smp_common, rx_soft_common, rx_hard_common, ...
+            tx_train_common, tx_dk_common, lin_conv_output, tag, mode, Kc, shift_sym);
     end
-
-    if ~isempty(lin_conv_output)
-        % lin_conv_output が idx_common に対応する長さを想定
-        stem(idx_common, lin_conv_output(1:numel(idx_common)), 'DisplayName','conv(x,h) (debug)');
-    end
-
-    grid on;
-    xlabel('sample index');
-    ylabel('amplitude (normalized)');
-    title(sprintf('%s  [%s]  (K=%d, shift=%d)', tag, mode, Kc, shift_sym));
-    legend('show','Location','best');
 
     % ============================================================
     % (2) ヒストグラム用（K_hist）：TX値ごとの RX_soft 分布（pdf）
@@ -168,10 +165,45 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     end
 
     Kc_h = K_use_h - shift_sym;
-    tx_h = real(x_train(1:Kc_h)).';
-    rx_h = real(rx_soft_h(shift_sym+1 : shift_sym+Kc_h)).';
+    local_plot_hist("Real", real(x_train(1:Kc_h)).', real(rx_soft_h(shift_sym+1 : shift_sym+Kc_h)).', tag, mode);
+    if ~isreal(rx_soft_h) || ~isreal(x_train)
+        local_plot_hist("Imag", imag(x_train(1:Kc_h)).', imag(rx_soft_h(shift_sym+1 : shift_sym+Kc_h)).', tag, mode);
+    end
 
-    % ---- 共通ビン（全TXで比較しやすいように）----
+end
+
+
+function lv = levels_from_sym(sym_idx, Mmod)
+    lv_ideal = (-(Mmod-1):2:(Mmod-1));
+    lv = lv_ideal(sym_idx);
+end
+
+function local_plot_component(tag_comp, comp, n, yN, idx_common, y_smp_common, rx_soft_common, rx_hard_common, ...
+    tx_train_common, tx_dk_common, lin_conv_output, tag, mode, Kc, shift_sym)
+    figure; hold on;
+
+    plot(n, comp(yN(n)), 'DisplayName',sprintf('y\\_wf / scale (%s)', tag_comp));
+    plot(idx_common, comp(y_smp_common), '.', 'DisplayName',sprintf('samples (y\\_smp, %s)', tag_comp));
+    plot(idx_common, comp(rx_soft_common), 'x', 'DisplayName',sprintf('RX soft (%s)', tag_comp));
+    stem(idx_common, comp(rx_hard_common), 'filled', 'DisplayName',sprintf('RX hard (%s)', tag_comp));
+    stem(idx_common, comp(tx_train_common), 'DisplayName',sprintf('TX x\\_train (%s)', tag_comp));
+
+    if ~isempty(tx_dk_common)
+        stem(idx_common, comp(tx_dk_common), 'DisplayName',sprintf('TX dk (%s)', tag_comp));
+    end
+
+    if ~isempty(lin_conv_output)
+        stem(idx_common, comp(lin_conv_output(1:numel(idx_common))), 'DisplayName',sprintf('conv(x,h) (%s)', tag_comp));
+    end
+
+    grid on;
+    xlabel('sample index');
+    ylabel('amplitude (normalized)');
+    title(sprintf('%s  [%s]  %s (K=%d, shift=%d)', tag, mode, tag_comp, Kc, shift_sym));
+    legend('show','Location','best');
+end
+
+function local_plot_hist(tag_comp, tx_h, rx_h, tag, mode)
     mu = mean(rx_h);
     sg = std(rx_h);
     if ~isfinite(sg) || (sg < 1e-12)
@@ -186,7 +218,6 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     Nb = 80;
     edges = linspace(rmin, rmax, Nb+1);
 
-    % ---- TX値ごとに pdf ヒストグラムを描く（重ね描き）----
     lv = unique(tx_h(:));
     lv = sort(lv);
 
@@ -202,25 +233,18 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
             'DisplayName',sprintf('Tx=%g (N=%d)', lv(ii), sum(mask)));
     end
 
-    xlabel('RX soft amplitude');
+    xlabel(sprintf('RX soft amplitude (%s)', tag_comp));
     ylabel('pdf');
-    title(sprintf('%s  [%s]  RX soft pdf per Tx  (K_{hist}=%d, N=%d)', ...
-        tag, mode, Kc_h, numel(rx_h)));
+    title(sprintf('%s  [%s]  RX soft pdf per Tx (%s)  (N=%d)', ...
+        tag, mode, tag_comp, numel(rx_h)));
     legend('show','Location','best');
 
-    % ---- 参考: 全点の誤差（RX_soft - TX）のpdf も表示（統計は K_hist 基準）----
     e = rx_h - tx_h;
     figure;
     histogram(e, 'Normalization','pdf');
     grid on;
-    xlabel('RX\_soft - TX');
+    xlabel(sprintf('RX\\_soft - TX (%s)', tag_comp));
     ylabel('pdf');
-    title(sprintf('%s  [%s]  Error pdf (var=%.6g)  (N=%d)', tag, mode, var(e), numel(e)));
-
-end
-
-
-function lv = levels_from_sym(sym_idx, Mmod)
-    lv_ideal = (-(Mmod-1):2:(Mmod-1));
-    lv = lv_ideal(sym_idx);
+    title(sprintf('%s  [%s]  Error pdf (%s, var=%.6g)  (N=%d)', ...
+        tag, mode, tag_comp, var(e), numel(e)));
 end

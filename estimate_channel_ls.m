@@ -1,4 +1,4 @@
-function coeffs = estimate_channel_ls(IO, x_sym, win)
+function coeffs = estimate_channel_ls(IO_or_rx, x_sym, win)
 % estimate_channel_ls
 %   連続受信波形(IO.y_wf) + 送信シンボル列(x_sym) から
 %   symbol-spaced のチャネル係数を LS で推定して coeffs を返す。
@@ -9,7 +9,9 @@ function coeffs = estimate_channel_ls(IO, x_sym, win)
 %     その最大振幅タップを m=0 とみなして first_C:C_max / first_F:F_max を切り出す
 %
 % 入力:
-%   IO  : struct( y_wf, NoSpS, c_index )
+%   IO_or_rx :
+%     - struct( y_wf, NoSpS, c_index ) 連続波形
+%     - または rx_sym (受信シンボル列)
 %   x_sym : 送信シンボル列（row/colどちらでもOK）
 %   win : struct('first_C',-2,'C_max',15,'first_F',0,'F_max',15) など
 %
@@ -21,11 +23,15 @@ function coeffs = estimate_channel_ls(IO, x_sym, win)
 
 % ---- (1) 連続→離散（evaluate_from_io と同じ規約）----
 x_sym = x_sym(:).';  % row
-tmp = struct('first_C', win.first_C);     % io_discretize が必要とする最小フィールド
-D   = io_discretize(IO, tmp, x_sym);     % idx = c_index + (first_C + k)*NoSpS でサンプル
-
-y_sym = D.y_sym(:).';                    % row
-Nsym = D.K;
+if isstruct(IO_or_rx) && isfield(IO_or_rx,'y_wf')
+    tmp = struct('first_C', win.first_C);     % io_discretize が必要とする最小フィールド
+    D   = io_discretize(IO_or_rx, tmp, x_sym);
+    y_sym = D.y_sym(:).';                     % row (未正規化)
+    Nsym = D.K;
+else
+    y_sym = IO_or_rx(:).';
+    Nsym = min(numel(x_sym), numel(y_sym));
+end
 
 % 長さ合わせ（安全側）
 x = x_sym(1:Nsym);

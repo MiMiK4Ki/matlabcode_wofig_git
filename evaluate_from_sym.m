@@ -8,7 +8,7 @@ function [Res, D] = evaluate_from_sym(y_sym, coeffs, param, ref_sym, mode)
 %   y_sym    : 受信サンプル列（※ evaluate_from_io 側で /NormRef 済みを想定）
 %   coeffs   : ChannelCoeff, first_C, first_F, NormRef など
 %   param    : MODNUM, bmax_initial, SNRdB など
-%   ref_sym  : 参照送信シンボル（woTHPでもwTHPでも「元のx_train」を渡す想定）
+%   ref_sym  : 参照送信シンボル（PAM/QAM 共通で「元のx_train」を渡す想定）
 %   mode     : "woTHP" or "wTHP"
 %
 % 出力 Res:
@@ -35,6 +35,13 @@ x_ref = x_ref(1:NsymAvail);
 Mmod       = param.MODNUM;
 bmax_value = param.bmax_initial * (Mmod/2);
 
+modtype = "PAM";
+if isfield(param, "MODTYPE") && ~isempty(param.MODTYPE)
+    modtype = upper(string(param.MODTYPE));
+elseif ~isreal(x_ref)
+    modtype = "QAM";
+end
+
 first_C = coeffs.first_C;
 first_F = coeffs.first_F;
 
@@ -53,8 +60,14 @@ switch mode
 end
 
 % --- hard decision系列（HardCap/BER用） ---
-[TX_sym_all, ~] = pam_to_symbols(x_ref, Mmod);
-[RX_sym_all, ~] = pam_to_symbols(rx_soft, Mmod);
+switch modtype
+    case "QAM"
+        [TX_sym_all, ~] = qam_to_symbols(x_ref, Mmod);
+        [RX_sym_all, ~] = qam_to_symbols(rx_soft, Mmod);
+    otherwise
+        [TX_sym_all, ~] = pam_to_symbols(x_ref, Mmod);
+        [RX_sym_all, ~] = pam_to_symbols(rx_soft, Mmod);
+end
 % figure;stem(rx_soft);
 if NsymAvail <= shift_sym
     error('evaluate_from_sym: symbols too short (NsymAvail=%d, shift=%d).', NsymAvail, shift_sym);
@@ -67,8 +80,14 @@ RX_sym_al = RX_sym_all(shift_sym+1:NsymAvail);
 [r_ik, C_hard] = compute_transition_and_hardcapacity(TX_sym_al, RX_sym_al, Mmod);
 
 % ---- BER ----
-TX_bits = pam_to_bits(levels_from_sym(TX_sym_al, Mmod), Mmod);
-RX_bits = pam_to_bits(levels_from_sym(RX_sym_al, Mmod), Mmod);
+switch modtype
+    case "QAM"
+        TX_bits = qam_to_bits(TX_sym_al, Mmod);
+        RX_bits = qam_to_bits(RX_sym_al, Mmod);
+    otherwise
+        TX_bits = pam_to_bits(levels_from_sym(TX_sym_al, Mmod), Mmod);
+        RX_bits = pam_to_bits(levels_from_sym(RX_sym_al, Mmod), Mmod);
+end
 Lb = min(numel(TX_bits), numel(RX_bits));
 BER = sum(xor(TX_bits(1:Lb), RX_bits(1:Lb))) / Lb;
 
@@ -92,17 +111,21 @@ end
 tx_evm = x_ref(1:NsymAvail-shift_sym);
 rx_evm = rx_soft(shift_sym+1:NsymAvail);
 
-% EVMref は「参照星座(64QAM)」前提なので、実数PAMなどでは NaN 扱い
+% EVMref は「参照星座(QAM)」前提なので、実数PAMなどでは NaN 扱い
 wantEVMref = ~(isreal(tx_evm) && isreal(rx_evm));
 
 EVM    = NaN;
 EVMref = NaN;
 
 if exist('CalcEVMv2_silent','file') == 2
+    qamOrder = 64;
+    if modtype == "QAM"
+        qamOrder = Mmod;
+    end
     if wantEVMref
-        [~,~,EVM,EVMref] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), 64);
+        [~,~,EVM,EVMref] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), qamOrder);
     else
-        [~,~,EVM] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), 64);
+        [~,~,EVM] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), qamOrder);
         EVMref = NaN;
     end
 elseif exist('CalcEVMv2','file') == 2

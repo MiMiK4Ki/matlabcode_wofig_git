@@ -7,7 +7,7 @@
 % 依存:
 %   get_channel_synthetic, io_make_theory, chan_cont_to_discrete,
 %   estimate_channel_ls, thp_prepare_tx, evaluate_from_io,
-%   io_calc_power, io_add_awgn, generate_PAM
+%   io_calc_power, io_add_awgn, generate_symbols
 %
 % 追加(この回答で提示):
 %   chan_coeffs_to_chanframe_interp (離散coeffs→連続ChanFrame近似)
@@ -26,6 +26,7 @@ param.SNRdB         = 5;
 param.first_F       = 0;
 param.bmax_initial  = 2;
 param.MODNUM        = 2;           % 8-PAM (=2M)
+param.MODTYPE       = "PAM";       % "PAM" or "QAM"
 param.TXD_N         = 20000;
 
 param.hFLpS         = 50;
@@ -41,8 +42,8 @@ win = struct('first_C',-7,'C_max',15,'first_F',param.first_F,'F_max',15);
 
 % rng(1);  % 再現性が欲しい場合のみ
 
-% (1) 評価に使う PAM（共通）
-x_train = generate_PAM(param.MODNUM, param.TXD_N);
+% (1) 評価に使うシンボル列（共通）
+x_train = generate_symbols(param, param.TXD_N);
 Nsym_train = numel(x_train);
 
 %% ==============================================================
@@ -52,6 +53,8 @@ Nsym_train = numel(x_train);
 ChanFrame_th = get_channel_synthetic(param);
 figure; plot((0:numel(ChanFrame_th.h_rx)-1)*ChanFrame_th.dt, real(ChanFrame_th.h_rx));
 grid on; title('ChanFrame\_th.h\_rx (real)');
+figure; plot((0:numel(ChanFrame_th.h_rx)-1)*ChanFrame_th.dt, imag(ChanFrame_th.h_rx));
+grid on; title('ChanFrame\_th.h\_rx (imag)');
 
 %% (A2) 理論IO（woTHP）
 IO_th_wo = io_make_theory(param, ChanFrame_th, x_train);
@@ -76,7 +79,14 @@ coeffs = coeffs_th_ls;
 figure; hold on;
 stem(win.first_C:win.C_max, real(coeffs_th_bridge.ChannelCoeff), 'DisplayName','theory bridge');
 stem(win.first_C:win.C_max, real(coeffs_th_ls.ChannelCoeff),     'DisplayName','LS');
-grid on; legend show; title('ChannelCoeff compare (theory)');
+grid on; legend show; title('ChannelCoeff compare (theory) [real]');
+ax=gca;
+ax.FontSize=28;
+
+figure; hold on;
+stem(win.first_C:win.C_max, imag(coeffs_th_bridge.ChannelCoeff), 'DisplayName','theory bridge');
+stem(win.first_C:win.C_max, imag(coeffs_th_ls.ChannelCoeff),     'DisplayName','LS');
+grid on; legend show; title('ChannelCoeff compare (theory) [imag]');
 ax=gca;
 ax.FontSize=28;
 
@@ -199,11 +209,19 @@ m_frac = ((0:numel(h_rc_n)-1) - (c_idx_peak_rc-1)) / NoSpS_exp;
 m_int = win.first_C:win.C_max;
 
 figure; hold on;
-plot(m_frac, real(h_rc_n), 'DisplayName','|Tx RC impulse| (normalized)');
-stem(m_int, real(coeffs_exp.ChannelCoeff), 'filled', 'DisplayName','|Estimated ChannelCoeff|');
+plot(m_frac, real(h_rc_n), 'DisplayName','|Tx RC impulse| (real)');
+stem(m_int, real(coeffs_exp.ChannelCoeff), 'filled', 'DisplayName','|Estimated ChannelCoeff| (real)');
 grid on;
 xlabel('symbol index m'); ylabel('magnitude');
-title('B5 Tx RC impulse (continuous) vs LS-estimated symbol-spaced channel');
+title('B5 Tx RC impulse vs LS-estimated channel [real]');
+legend('show','Location','best');
+
+figure; hold on;
+plot(m_frac, imag(h_rc_n), 'DisplayName','|Tx RC impulse| (imag)');
+stem(m_int, imag(coeffs_exp.ChannelCoeff), 'filled', 'DisplayName','|Estimated ChannelCoeff| (imag)');
+grid on;
+xlabel('symbol index m'); ylabel('magnitude');
+title('B5 Tx RC impulse vs LS-estimated channel [imag]');
 legend('show','Location','best');
 
 ax=gca;
@@ -216,11 +234,12 @@ ax.FontSize=28;
 %   - サンプリング点の離散モデル
 %   - THPの符号化/復号
 % の動作確認が主目的。
-%% チャネル係数の実数化（その場しのぎなので要編集）
-
-coeffs_exp.ChannelCoeff = real(coeffs_exp.ChannelCoeff);
-coeffs_exp.FilterCoeff = real(coeffs_exp.FilterCoeff);
-coeffs_exp.NormRef = real(coeffs_exp.NormRef);
+%% チャネル係数の実数化（PAM用。QAMの場合は複素を保持）
+if upper(string(param.MODTYPE)) == "PAM"
+    coeffs_exp.ChannelCoeff = real(coeffs_exp.ChannelCoeff);
+    coeffs_exp.FilterCoeff = real(coeffs_exp.FilterCoeff);
+    coeffs_exp.NormRef = real(coeffs_exp.NormRef);
+end
 
 coeffs_exp.ChannelCoeff(1:-win.first_C-1) = 0;
 coeffs_exp.FilterCoeff(1:-win.first_F-1) = 0;
@@ -232,8 +251,14 @@ coeffs_px_check = chan_cont_to_discrete(param, ChanFrame_px, win);
 figure; hold on;
 stem(win.first_C:win.C_max, real(coeffs_exp.ChannelCoeff),      'DisplayName','coeffs\_exp');
 stem(win.first_C:win.C_max, real(coeffs_px_check.ChannelCoeff), 'DisplayName','re-extract');
-plot(win.first_C:1/param.NoSpS:(win.C_max+5),ChanFrame_px.h_rx ./ coeffs_exp.NormRef,'DisplayName','Interp')
-grid on; legend show; title('Sanity: coeffs_exp vs re-extracted from ChanFrame_px');
+plot(win.first_C:1/param.NoSpS:(win.C_max+5),real(ChanFrame_px.h_rx ./ coeffs_exp.NormRef),'DisplayName','Interp (real)')
+grid on; legend show; title('Sanity: coeffs_exp vs re-extracted [real]');
+
+figure; hold on;
+stem(win.first_C:win.C_max, imag(coeffs_exp.ChannelCoeff),      'DisplayName','coeffs\_exp');
+stem(win.first_C:win.C_max, imag(coeffs_px_check.ChannelCoeff), 'DisplayName','re-extract');
+plot(win.first_C:1/param.NoSpS:(win.C_max+5),imag(ChanFrame_px.h_rx ./ coeffs_exp.NormRef),'DisplayName','Interp (imag)')
+grid on; legend show; title('Sanity: coeffs_exp vs re-extracted [imag]');
 
 ax=gca;
 ax.FontSize=28;
@@ -315,10 +340,17 @@ peak_shift_index = IO_s2p_wo.c_index - (2*param.hFLpS*param.NoSpS + 1);
 
 coeffs_s2p_ls = estimate_channel_ls(IO_s2p_wo, x_train, win);
 figure; hold on;
-plot((-2*param.hFLpS :1/param.NoSpS: 2*param.hFLpS)  - peak_shift_index/param.NoSpS   ,real(ChanFrame_s2p.h_rx ./coeffs_s2p.NormRef), 'DisplayName','Continuous')
-stem(win.first_C:win.C_max, real(coeffs_s2p.ChannelCoeff), 'filled', 'DisplayName','bridge');
-stem(win.first_C:win.C_max, real(coeffs_s2p_ls.ChannelCoeff),     'DisplayName','LS');
-grid on; legend show; title('S2P route ChannelCoeff: bridge vs LS');
+plot((-2*param.hFLpS :1/param.NoSpS: 2*param.hFLpS)  - peak_shift_index/param.NoSpS   ,real(ChanFrame_s2p.h_rx ./coeffs_s2p.NormRef), 'DisplayName','Continuous (real)')
+stem(win.first_C:win.C_max, real(coeffs_s2p.ChannelCoeff), 'filled', 'DisplayName','bridge (real)');
+stem(win.first_C:win.C_max, real(coeffs_s2p_ls.ChannelCoeff),     'DisplayName','LS (real)');
+grid on; legend show; title('S2P route ChannelCoeff: bridge vs LS [real]');
+xlim([win.first_C win.C_max])
+
+figure; hold on;
+plot((-2*param.hFLpS :1/param.NoSpS: 2*param.hFLpS)  - peak_shift_index/param.NoSpS   ,imag(ChanFrame_s2p.h_rx ./coeffs_s2p.NormRef), 'DisplayName','Continuous (imag)')
+stem(win.first_C:win.C_max, imag(coeffs_s2p.ChannelCoeff), 'filled', 'DisplayName','bridge (imag)');
+stem(win.first_C:win.C_max, imag(coeffs_s2p_ls.ChannelCoeff),     'DisplayName','LS (imag)');
+grid on; legend show; title('S2P route ChannelCoeff: bridge vs LS [imag]');
 xlim([win.first_C win.C_max])
 %% --- (E4) 評価 woTHP ---
 [Res_s2p_wo, D_s2p_wo] = evaluate_from_io(IO_s2p_wo, coeffs_s2p, param_s2p, x_train, 'woTHP');
