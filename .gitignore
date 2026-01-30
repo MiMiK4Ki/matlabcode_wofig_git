@@ -1,0 +1,7 @@
+*.mat
+*.asv
+*.fig
+*.mex*
+*.p
+.DS_Store
+Thumbs.db
