@@ -103,8 +103,17 @@ figure; hold on;
 stem(mRange , real(h_wo), 'DisplayName','h\_eff woTHP (real)');
 stem(mRange + param.first_F, real(h_w ), 'DisplayName','h\_eff wTHP  (real)');
 grid on; xlabel('tap index m'); ylabel('tap value');
-title(['Effective taps (LS): ' char(figTitle)]);
+title(['Effective taps (LS) [Real]: ' char(figTitle)]);
 legend('show','Location','best');
+
+if ~isreal(h_wo) || ~isreal(h_w)
+    figure; hold on;
+    stem(mRange , imag(h_wo), 'DisplayName','h\_eff woTHP (imag)');
+    stem(mRange + param.first_F, imag(h_w ), 'DisplayName','h\_eff wTHP  (imag)');
+    grid on; xlabel('tap index m'); ylabel('tap value');
+    title(['Effective taps (LS) [Imag]: ' char(figTitle)]);
+    legend('show','Location','best');
+end
 
 print_metrics = @(name, hvec) local_print_metrics(name, hvec, mRange);
 

@@ -1,6 +1,14 @@
 function lambda = wrapToM(lambda,M)
+% wrapToM
+%   実数は従来の wrap を適用。
+%   複素数は実部・虚部を独立に wrap する。
 
-lambda = lambda +M;
+if ~isreal(lambda)
+    lambda = wrapToM(real(lambda), M) + 1j * wrapToM(imag(lambda), M);
+    return;
+end
+
+lambda = lambda + M;
 
 positiveInput = (lambda > 0);
 lambda = mod(lambda, 2*M);

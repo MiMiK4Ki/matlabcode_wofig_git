@@ -7,33 +7,22 @@ function [Res, D] = evaluate_from_io(IO, coeffs, param, ref_sym, mode)
 %   IO.y_wf, IO.NoSpS, IO.c_index
 %   coeffs.first_C, coeffs.NormRef
 
-y  = IO.y_wf(:).';
-L  = IO.NoSpS;
-c_index = IO.c_index;
-
-x_ref = ref_sym(:).';
-
-% 取り出せるシンボル数（c_index基準）
-NsymAvail = min(numel(x_ref), floor((numel(y)-c_index)/L) + 1);
-
-% 旧main準拠: first_C を含めた位置でサンプルを切る
-idx = c_index + (coeffs.first_C + (0:NsymAvail-1))*L;
-
-% 離散系列（NormRefで正規化）
-y_sym_raw = y(idx);
+% 連続波形 → 離散シンボル
+Ddisc = io_discretize(IO, coeffs, ref_sym);
+y_sym_raw = Ddisc.y_sym(:).';
 y_sym     = y_sym_raw ./ coeffs.NormRef;
 
 % 評価（EVM含む）
-[Res, Dsym] = evaluate_from_sym(y_sym, coeffs, param, x_ref(1:NsymAvail), mode);
+[Res, Dsym] = evaluate_from_sym(y_sym, coeffs, param, ref_sym(1:Ddisc.K), mode);
 
 % debug
 if nargout >= 2
     D = Dsym;
-    D.idx       = idx;
+    D.idx       = Ddisc.idx;
     D.y_sym     = y_sym;
     D.y_sym_raw = y_sym_raw;
-    D.c_index   = c_index;
-    D.NoSpS     = L;
+    D.c_index   = Ddisc.c_index;
+    D.NoSpS     = IO.NoSpS;
 else
     D = [];
 end
