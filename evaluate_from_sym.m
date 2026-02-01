@@ -32,8 +32,7 @@ NsymAvail = min(numel(x_ref), numel(y_sym));
 y_sym = y_sym(1:NsymAvail);
 x_ref = x_ref(1:NsymAvail);
 
-Mmod       = param.MODNUM;
-bmax_value = param.bmax_initial * (Mmod/2);
+Mmod = param.MODNUM;
 
 modtype = "PAM";
 if isfield(param, "MODTYPE") && ~isempty(param.MODTYPE)
@@ -42,28 +41,53 @@ elseif ~isreal(x_ref)
     modtype = "QAM";
 end
 
+switch modtype
+    case "QAM"
+        L = sqrt(Mmod);
+        if mod(L,1) ~= 0
+            error('MODNUM must be a perfect square for QAM.');
+        end
+        bmax_value = param.bmax_initial * (L/2);
+    otherwise
+        bmax_value = param.bmax_initial * (Mmod/2);
+end
+
+
 first_C = coeffs.first_C;
 first_F = coeffs.first_F;
 
-% m=0 の位置（ChannelCoeffは m=first_C:... の並び）
-idx_m0 = 1 - first_C;
-A0     = coeffs.ChannelCoeff(idx_m0);
 
 % --- modeごとの soft系列（EVM/周波数応答に使う） ---
+% 受信は必ず first_F のタップで正規化した座標系（THP設計座標）
+yF = y_sym;               % = y / h[first_F]
+
+% m=0 のタップ比（ピーク/所望タップ）
+
+idx_m0 = 1 - first_C;
+
+A0 = coeffs.ChannelCoeff(idx_m0);   % = h0 / hF
+
 switch mode
     case "woTHP"
-        rx_soft   = (y_sym) / A0;
+        % ベースラインは常にピーク基準（= y/h0）
+        rx_soft   = yF / A0;
         shift_sym = abs(first_C);
+
     case "wTHP"
-        rx_soft   = wrapToM(y_sym, bmax_value);
+        % THPは所望タップ基準で modulo（= wrap(y/hF)）
+        rx_soft   = wrapToM(yF, bmax_value);
         shift_sym = abs(first_C - first_F);
 end
 
+
 % --- hard decision系列（HardCap/BER用） ---
 switch modtype
+
     case "QAM"
-        [TX_sym_all, ~] = qam_to_symbols(x_ref, Mmod);
-        [RX_sym_all, ~] = qam_to_symbols(rx_soft, Mmod);
+        % 参照x_refからスケール込み Gray constellation を作り、それをTX/RX共通に使う
+        [TX_sym_all, const] = qam_to_symbols(x_ref, Mmod, x_ref);
+        RX_sym_all          = qam_to_symbols(rx_soft, Mmod, x_ref);
+
     otherwise
         [TX_sym_all, ~] = pam_to_symbols(x_ref, Mmod);
         [RX_sym_all, ~] = pam_to_symbols(rx_soft, Mmod);
@@ -75,6 +99,8 @@ end
 
 TX_sym_al = TX_sym_all(1:NsymAvail-shift_sym);
 RX_sym_al = RX_sym_all(shift_sym+1:NsymAvail);
+% ---- SER ----
+SER = mean(TX_sym_al ~= RX_sym_al);
 
 % ---- Hard capacity ----
 [r_ik, C_hard] = compute_transition_and_hardcapacity(TX_sym_al, RX_sym_al, Mmod);
@@ -92,20 +118,19 @@ Lb = min(numel(TX_bits), numel(RX_bits));
 BER = sum(xor(TX_bits(1:Lb), RX_bits(1:Lb))) / Lb;
 
 % ---- Soft capacity ----
-Soft_capacity = NaN;
-if isreal(rx_soft) && isreal(x_ref)
-    foldername = '';
-    switch mode
-        case "woTHP"
-            firstF_arg = 0;
-            [Soft_capacity, ~] = calculate_capacity(foldername, rx_soft, x_ref, ...
-                param.SNRdB, firstF_arg, first_C, "woTHP", bmax_value);
-        case "wTHP"
-            firstF_arg = first_F;
-            [Soft_capacity, ~] = calculate_capacity(foldername, rx_soft, x_ref, ...
-                param.SNRdB, firstF_arg, first_C, "wTHP", bmax_value);
-    end
+
+foldername = '';
+switch mode
+    case "woTHP"
+        firstF_arg = 0;
+        [Soft_capacity, ~] = calculate_capacity(foldername, rx_soft, x_ref, ...
+            param.SNRdB, firstF_arg, first_C, "woTHP", bmax_value);
+    case "wTHP"
+        firstF_arg = first_F;
+        [Soft_capacity, ~] = calculate_capacity(foldername, rx_soft, x_ref, ...
+            param.SNRdB, firstF_arg, first_C, "wTHP", bmax_value);
 end
+
 
 % ---- EVM (v2) ----
 tx_evm = x_ref(1:NsymAvail-shift_sym);
@@ -117,29 +142,19 @@ wantEVMref = ~(isreal(tx_evm) && isreal(rx_evm));
 EVM    = NaN;
 EVMref = NaN;
 
+% ---- EVM (v2) ----
+EVM    = NaN;
+EVMref = NaN;
+
 if exist('CalcEVMv2_silent','file') == 2
-    qamOrder = 64;
-    if modtype == "QAM"
-        qamOrder = Mmod;
-    end
-    if wantEVMref
-        [~,~,EVM,EVMref] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), qamOrder);
-    else
-        [~,~,EVM] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), qamOrder);
-        EVMref = NaN;
-    end
-elseif exist('CalcEVMv2','file') == 2
-    % 注意: CalcEVMv2.m に表示行が残っていると sweep/parfor 時に大量出力されます
-    if wantEVMref
-        [~,~,EVM,EVMref] = CalcEVMv2(rx_evm(:), tx_evm(:));
-    else
-        [~,~,EVM] = CalcEVMv2(rx_evm(:), tx_evm(:));
-        EVMref = NaN;
-    end
+    [~,~,EVM,EVMref] = CalcEVMv2_silent(rx_evm(:), tx_evm(:), Mmod);
 else
-    % v2が無いなら NaN
-    EVM = NaN; EVMref = NaN;
+    % 最低限のフォールバック（best-fit無し版）
+    e = rx_evm(:) - tx_evm(:);
+    EVM = 100*sqrt(mean(abs(e).^2)/mean(abs(tx_evm(:)).^2));
+    EVMref = NaN;
 end
+
 
 % ---- 返り値 ----
 Res = struct();
@@ -150,6 +165,7 @@ Res.EVM           = EVM;
 Res.EVMref        = EVMref;
 Res.r_ik          = r_ik;
 Res.shift_sym     = shift_sym;
+Res.SER = SER;
 
 if nargout >= 2
     D = struct();

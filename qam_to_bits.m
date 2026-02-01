@@ -1,25 +1,16 @@
 function bits = qam_to_bits(sym_idx, M)
-% qam_to_bits
-%   QAMシンボルインデックス (1..M) をビット列へ変換。
-%   現状は自然二進数 (left-msb) の対応。
+% qam_to_bits (Gray mapping)
+%   sym_idx は qam_to_symbols の出力（Gray順インデックス）を想定。
+%   idx0 = sym_idx-1 をそのままビット化すれば Grayビット列になる。
 
-    if mod(sqrt(M), 1) ~= 0
-        error('M must be a perfect square for square QAM.');
-    end
-
-    idx0 = sym_idx(:) - 1;
     bits_per_symbol = log2(M);
-    bits = de2bi_local(idx0, bits_per_symbol, 'left-msb');
-    bits = reshape(bits.', 1, []);
-end
+    idx0 = uint32(sym_idx(:) - 1);
 
-function bits = de2bi_local(d, n, varargin)
-    bits = zeros(length(d), n);
-    for i = n:-1:1
-        bits(:,i) = mod(d, 2);
-        d = floor(d/2);
+    bits_mat = zeros(numel(idx0), bits_per_symbol, 'uint8');
+    for b = 1:bits_per_symbol
+        shift = bits_per_symbol - b;
+        bits_mat(:, b) = uint8(bitand(bitshift(idx0, -shift), 1));
     end
-    if nargin == 3 && strcmp(varargin{1}, 'left-msb')
-        bits = fliplr(bits);
-    end
+
+    bits = reshape(bits_mat.', 1, []);
 end

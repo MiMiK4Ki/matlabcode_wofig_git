@@ -22,11 +22,11 @@ set(groot, 'DefaultColorbarFontSize', 28);
 
 %% (0) 共通パラメータ（ここだけ編集）
 param.cutoff_coeff  = 1;
-param.SNRdB         = 5;
+param.SNRdB         = 10;
 param.first_F       = 0;
 param.bmax_initial  = 2;
-param.MODNUM        = 2;           % 8-PAM (=2M)
-param.MODTYPE       = "PAM";       % "PAM" or "QAM"
+param.MODNUM        = 4;           % 8-PAM (=2M)
+param.MODTYPE       = "QAM";       % "PAM" or "QAM"
 param.TXD_N         = 20000;
 
 param.hFLpS         = 50;
@@ -109,7 +109,11 @@ Nsym_bk = numel(TX_th.bk);
 [P_th_w, ~] = io_calc_power(IO_th_w, Nsym_bk, param, "continuous");
 IO_th_w = io_add_awgn(IO_th_w, P_th_w, param);
 
-[Res_th_w, D_th_w] = evaluate_from_io(IO_th_w, coeffs, param, x_train, 'wTHP');
+% --- (A6-ADD) 推奨案A: wTHP run固有のNormRefを推定して差し替え ---
+[coeffs_th_w_eval, info_th_w_norm] = coeffs_update_normref_from_io( ...
+    coeffs, IO_th_w, TX_th.bk, win, "A6 Theory wTHP");
+
+[Res_th_w, D_th_w] = evaluate_from_io(IO_th_w, coeffs_th_w_eval, param, x_train, 'wTHP');
 
 evmref = NaN; if isfield(Res_th_w,'EVMref'), evmref = Res_th_w.EVMref; end
 fprintf('[Theory wTHP ] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
@@ -117,8 +121,8 @@ fprintf('[Theory wTHP ] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref
 
 plot_freqresp_eqchange(D_th_wo, D_th_w, win, param, "A Theory", coeffs);
 
-% TX_th.dk が thp_prepare_tx から出ている前提（無いなら thp_prepare_tx に追加）
-plot_txrx_overlay(IO_th_w, coeffs, param, x_train, 'wTHP', 'A6 Theory wTHP', 200, TX_th.dk);
+plot_txrx_overlay(IO_th_w, coeffs_th_w_eval, param, x_train, 'wTHP', 'A6 Theory wTHP', 200, TX_th.dk);
+
 
 
 %% ==============================================================
@@ -200,7 +204,7 @@ h_rc = step(rcFilt_check, [1; zeros(nsymb,1)]);   % 連続インパルス応答�
 
 % ピークで中心合わせ
 [~, c_idx_peak_rc] = max(abs(h_rc));
-h_rc_n = h_rc / h_rc(c_idx_peak_rc) .* real(coeffs_exp.ChannelCoeff(1-win.first_C)) ;              % ピークをシンボルと合わせる
+h_rc_n = h_rc / h_rc(c_idx_peak_rc) .* coeffs_exp.ChannelCoeff(1-win.first_C) ;              % ピークをシンボルと合わせる
 
 % 横軸を「シンボルインデックス相当」に変換（連続）
 m_frac = ((0:numel(h_rc_n)-1) - (c_idx_peak_rc-1)) / NoSpS_exp;
@@ -235,11 +239,11 @@ ax.FontSize=28;
 %   - THPの符号化/復号
 % の動作確認が主目的。
 %% チャネル係数の実数化（PAM用。QAMの場合は複素を保持）
-if upper(string(param.MODTYPE)) == "PAM"
-    coeffs_exp.ChannelCoeff = real(coeffs_exp.ChannelCoeff);
-    coeffs_exp.FilterCoeff = real(coeffs_exp.FilterCoeff);
-    coeffs_exp.NormRef = real(coeffs_exp.NormRef);
-end
+% if upper(string(param.MODTYPE)) == "PAM"
+%     coeffs_exp.ChannelCoeff = real(coeffs_exp.ChannelCoeff);
+%     coeffs_exp.FilterCoeff = real(coeffs_exp.FilterCoeff);
+%     coeffs_exp.NormRef = real(coeffs_exp.NormRef);
+% end
 
 coeffs_exp.ChannelCoeff(1:-win.first_C-1) = 0;
 coeffs_exp.FilterCoeff(1:-win.first_F-1) = 0;
@@ -292,16 +296,20 @@ Nsym_bk = numel(TX_px.bk);
 [P_px_w, ~] = io_calc_power(IO_px_w, Nsym_bk, param, "continuous");
 IO_px_w = io_add_awgn(IO_px_w, P_px_w, param);      % 加えたくなければコメントアウト
 
-[Res_px_w, D_px_w] = evaluate_from_io(IO_px_w, coeffs_exp, param, x_train, 'wTHP');
+% --- (C3-ADD) 推奨案A: wTHP run固有のNormRefを推定して差し替え ---
+[coeffs_px_w_eval, info_px_w_norm] = coeffs_update_normref_from_io( ...
+    coeffs_exp, IO_px_w, TX_px.bk, win, "C3 PartialExp wTHP");
+
+[Res_px_w, D_px_w] = evaluate_from_io(IO_px_w, coeffs_px_w_eval, param, x_train, 'wTHP');
 
 evmref = NaN; if isfield(Res_px_w,'EVMref'), evmref = Res_px_w.EVMref; end
 fprintf('[PartialExp wTHP ] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
     Res_px_w.BER, Res_px_w.Hard_capacity, Res_px_w.Soft_capacity, Res_px_w.EVM, evmref);
 
-
 plot_freqresp_eqchange(D_px_wo, D_px_w, win, param, "C PartialExp", coeffs_exp);
 
-plot_txrx_overlay(IO_px_w, coeffs_exp, param, x_train, 'wTHP', 'C3 PartialExp wTHP', 200, TX_px.dk);
+plot_txrx_overlay(IO_px_w, coeffs_px_w_eval, param, x_train, 'wTHP', 'C3 PartialExp wTHP', 200, TX_px.dk);
+
 
 %% ==============================================================
 %% (E) 一部実験ルート（S2P）：チャネル=s2p(デバイス) + sRRC, IO=理論
@@ -371,15 +379,28 @@ Nsym_bk_s2p = numel(TX_s2p.bk);
 IO_s2p_w = io_add_awgn(IO_s2p_w, P_s2p_w, param_s2p);
 
 %% --- (E6) 評価 wTHP ---
-[Res_s2p_w, D_s2p_w] = evaluate_from_io(IO_s2p_w, coeffs_s2p, param_s2p, x_train, 'wTHP');
+% --- (E6-ADD) 推奨案A: wTHP run固有のNormRefを推定して差し替え ---
+[coeffs_s2p_w_eval, info_s2p_w_norm] = coeffs_update_normref_from_io( ...
+    coeffs_s2p, IO_s2p_w, TX_s2p.bk, win, "E6 S2P wTHP");
+
+[Res_s2p_w, D_s2p_w] = evaluate_from_io(IO_s2p_w, coeffs_s2p_w_eval, param_s2p, x_train, 'wTHP');
+
 evmref = NaN; if isfield(Res_s2p_w,'EVMref'), evmref = Res_s2p_w.EVMref; end
 fprintf('[S2P wTHP ] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
     Res_s2p_w.BER, Res_s2p_w.Hard_capacity, Res_s2p_w.Soft_capacity, Res_s2p_w.EVM, evmref);
+
+[h_wo,h_w] = plot_freqresp_eqchange(D_s2p_wo, D_s2p_w, win, param_s2p, "E S2P", coeffs_s2p);
+
+lin_conv_output = conv(h_w,x_train);
+lin_conv_output = lin_conv_output(abs(win.first_C)+1:200 + abs(win.first_C));
+
+plot_txrx_overlay(IO_s2p_w, coeffs_s2p_w_eval, param_s2p, x_train, 'wTHP', 'E3 S2P wTHP', 200, TX_s2p.dk, lin_conv_output);
+
 %%
 [h_wo,h_w] = plot_freqresp_eqchange(D_s2p_wo, D_s2p_w, win, param_s2p, "E S2P", coeffs_s2p);
 
-        lin_conv_output = conv(h_w,x_train);
-        lin_conv_output = lin_conv_output(abs(win.first_C)+1:200 + abs(win.first_C));
+lin_conv_output = conv(h_w,x_train);
+lin_conv_output = lin_conv_output(abs(win.first_C)+1:200 + abs(win.first_C));
 
 
 %%
@@ -483,14 +504,20 @@ if doRouteD_fullExperiment
         param_exp_w = param_exp;
         param_exp_w.NoSpS = Sw.nSamps;
 
-        [Res_wE, D_wE] = evaluate_from_io(IO_wE, coeffs_exp_est, param_exp_w, x_train, 'wTHP');
+        % --- (D3-ADD) 推奨案A: wTHP run固有のNormRefを推定して差し替え ---
+        [coeffs_wE_eval, info_wE_norm] = coeffs_update_normref_from_io( ...
+            coeffs_exp_est, IO_wE, tx_upd_w(:).', win, "D3 FullExp wTHP");
+
+        [Res_wE, D_wE] = evaluate_from_io(IO_wE, coeffs_wE_eval, param_exp_w, x_train, 'wTHP');
 
         evmref = NaN; if isfield(Res_wE,'EVMref'), evmref = Res_wE.EVMref; end
         fprintf('[FullEXP wTHP ] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
             Res_wE.BER, Res_wE.Hard_capacity, Res_wE.Soft_capacity, Res_wE.EVM, evmref);
 
         plot_freqresp_eqchange(D_woE, D_wE, win, param_exp, "D FullExp", coeffs_exp_est);
-        plot_txrx_overlay(IO_wE, coeffs_exp_est, param_exp_w, x_train, 'wTHP', 'D2 FullExp wTHP', 200, TX_D.dk);
+
+        plot_txrx_overlay(IO_wE, coeffs_wE_eval, param_exp_w, x_train, 'wTHP', 'D2 FullExp wTHP', 200, TX_D.dk);
+
 
     catch ME
         exp_close(EXP);

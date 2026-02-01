@@ -5,7 +5,7 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
 %
 % ★追加機能:
 %   - 送信シンボル値 x_train ごとの RX_soft ヒストグラム（pdf）を表示
-%   - K_plot とは別に K_hist を用意（デフォルトで全体 ~20000点）
+%   - IQコンスタレーション散布図（TX参照点＋RX点群）を表示
 %
 % 入力:
 %   IO      : struct, 必須 .y_wf .NoSpS .c_index
@@ -57,13 +57,34 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     idx_m0 = 1 - first_C;                 % m=0 のインデックス
     A0     = coeffs.ChannelCoeff(idx_m0); % m=0 の係数
 
+    % ===== 変調種別判定 =====
+    modtype = "PAM";
+    if isfield(param, "MODTYPE") && ~isempty(param.MODTYPE)
+        modtype = upper(string(param.MODTYPE));
+    elseif ~isreal(x_train)
+        modtype = "QAM";
+    end
+
+    % ===== bmax の決定（評価/THP設計と一致させる）=====
+    Mmod = param.MODNUM;
+    switch modtype
+        case "QAM"
+            L = sqrt(double(Mmod));
+            if abs(L - round(L)) > 1e-12
+                error('plot_txrx_overlay: MODNUM must be a perfect square for QAM.');
+            end
+            bmax_value = param.bmax_initial * (L/2);
+        otherwise
+            bmax_value = param.bmax_initial * (Mmod/2);
+    end
+
     % ===== シフト量（旧規約に準拠） & スケール =====
     if mode == "woTHP"
         shift_sym = abs(first_C);
-        scale = (NormRef * A0);
+        scale = (NormRef * A0);   % woTHP: y/(NormRef*A0) = (y/NormRef)/A0 と一致
     else
         shift_sym = abs(first_C - first_F);
-        scale = NormRef;
+        scale = NormRef;          % wTHP: y/NormRef を wrap
     end
 
     yN = y ./ scale;
@@ -80,9 +101,6 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     idx_rx = c_index + (first_C + (0:K_use-1)) * NoSpS;
     y_smp  = yN(idx_rx);
 
-    Mmod       = param.MODNUM;
-    bmax_value = param.bmax_initial * (Mmod/2);
-
     switch mode
         case "woTHP"
             rx_soft = y_smp;
@@ -92,17 +110,11 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
             error("mode must be 'woTHP' or 'wTHP'.");
     end
 
-    modtype = "PAM";
-    if isfield(param, "MODTYPE") && ~isempty(param.MODTYPE)
-        modtype = upper(string(param.MODTYPE));
-    elseif ~isreal(x_train)
-        modtype = "QAM";
-    end
-
     % hard decision（PAM/QAM）
     switch modtype
         case "QAM"
-            [RX_sym_idx, const] = qam_to_symbols(rx_soft, Mmod);
+            % ★参照 x_train を渡してスケール/座標系を合わせる
+            [RX_sym_idx, const] = qam_to_symbols(rx_soft, Mmod, x_train);
             rx_hard = const(RX_sym_idx);
         otherwise
             [RX_sym_idx, ~] = pam_to_symbols(real(rx_soft), Mmod);
@@ -138,6 +150,7 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     % ===== オーバレイプロット（実部/虚部で分離）=====
     local_plot_component("Real", @real, n, yN, idx_common, y_smp_common, rx_soft_common, rx_hard_common, ...
         tx_train_common, tx_dk_common, lin_conv_output, tag, mode, Kc, shift_sym);
+
     if ~isreal(yN) || ~isreal(tx_train_common) || ~isreal(rx_soft_common)
         local_plot_component("Imag", @imag, n, yN, idx_common, y_smp_common, rx_soft_common, rx_hard_common, ...
             tx_train_common, tx_dk_common, lin_conv_output, tag, mode, Kc, shift_sym);
@@ -150,7 +163,7 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     K_use_h = min(Krx_max, K_hist + shift_sym);
 
     if K_use_h <= shift_sym
-        warning('plot_txrx_overlay: K_hist too small after shift. Skip histogram.');
+        warning('plot_txrx_overlay: K_hist too small after shift. Skip histogram/constellation.');
         return;
     end
 
@@ -165,10 +178,21 @@ function plot_txrx_overlay(IO, coeffs, param, x_train, mode, tag, K_plot, tx_dk,
     end
 
     Kc_h = K_use_h - shift_sym;
+
+    % 1Dヒスト（Real/Imag）表示
     local_plot_hist("Real", real(x_train(1:Kc_h)).', real(rx_soft_h(shift_sym+1 : shift_sym+Kc_h)).', tag, mode);
+
     if ~isreal(rx_soft_h) || ~isreal(x_train)
         local_plot_hist("Imag", imag(x_train(1:Kc_h)).', imag(rx_soft_h(shift_sym+1 : shift_sym+Kc_h)).', tag, mode);
     end
+
+    % ============================================================
+    % (3) IQコンスタレーション散布図（TX参照点＋RX点群）
+    %     ※ヒスト用の長い系列(K_hist)を使って点群の形を見やすくする
+    % ============================================================
+    tx_sc = x_train(1:Kc_h);
+    rx_sc = rx_soft_h(shift_sym+1 : shift_sym+Kc_h);
+    local_plot_constellation(tx_sc, rx_sc, tag, mode, modtype, Mmod);
 
 end
 
@@ -239,7 +263,7 @@ function local_plot_hist(tag_comp, tx_h, rx_h, tag, mode)
         tag, mode, tag_comp, numel(rx_h)));
     legend('show','Location','best');
 
-    e = rx_h - tx_h;
+    e = rx_h(:) - tx_h(:);
     figure;
     histogram(e, 'Normalization','pdf');
     grid on;
@@ -247,4 +271,44 @@ function local_plot_hist(tag_comp, tx_h, rx_h, tag, mode)
     ylabel('pdf');
     title(sprintf('%s  [%s]  Error pdf (%s, var=%.6g)  (N=%d)', ...
         tag, mode, tag_comp, var(e), numel(e)));
+end
+
+function local_plot_constellation(tx_sc, rx_sc, tag, mode, modtype, Mmod)
+% local_plot_constellation
+%   TX参照点（ユニーク点）と RX点群を I-Q 平面に散布図で表示する。
+%   PAMでも、チャネル回転でRXが複素になっていればIQ散布として意味がある。
+
+    tx = tx_sc(:);
+    rx = rx_sc(:);
+
+    ok = isfinite(real(tx)) & isfinite(imag(tx)) & isfinite(real(rx)) & isfinite(imag(rx));
+    tx = tx(ok);
+    rx = rx(ok);
+
+    if isempty(rx)
+        warning('local_plot_constellation: empty after finite check.');
+        return;
+    end
+
+    % 点が多すぎると重いので、表示用に間引き（決定的にする）
+    N = numel(rx);
+    Nmax = 8000;
+    if N > Nmax
+        idx = unique(round(linspace(1, N, Nmax)));
+    else
+        idx = 1:N;
+    end
+
+    tx_u = unique(tx);
+
+    figure; hold on; grid on; axis equal;
+    scatter(real(rx(idx)), imag(rx(idx)), 10, 'filled', ...
+        'DisplayName', sprintf('RX soft (%d/%d)', numel(idx), N));
+    plot(real(tx_u), imag(tx_u), 'x', 'LineWidth', 2, 'MarkerSize', 10, ...
+        'DisplayName', sprintf('TX ref points (unique=%d)', numel(tx_u)));
+
+    xlabel('I');
+    ylabel('Q');
+    title(sprintf('%s  [%s]  IQ constellation (mod=%s, M=%d)', tag, mode, modtype, Mmod));
+    legend('show','Location','best');
 end
