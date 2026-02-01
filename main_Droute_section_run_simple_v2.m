@@ -74,14 +74,14 @@ paramD.TXD_N = frameLength;
 % ---- bmax の扱い（既存 thp_prepare_tx が bmax = bmax_initial*(M/2) を使う前提のまま対応）
 % QAMで本来 bmax = bmax_initial*(sqrt(M)/2) を使いたい場合は、
 % paramD.bmax_initial を (1/sqrt(M)) 倍しておくと、既存式で等価にできる。
-modtype = upper(string(paramD.MODTYPE));
-if modtype == "QAM"
-    L = sqrt(double(paramD.MODNUM));
-    if abs(L - round(L)) > 1e-12
-        error('MODNUM must be square for QAM (4/16/64/...).');
-    end
-    paramD.bmax_initial = paramD.bmax_initial / L;  % ★重要（既存式のまま QAM bmax を合わせる）
-end
+% modtype = upper(string(paramD.MODTYPE));
+% if modtype == "QAM"
+%     L = sqrt(double(paramD.MODNUM));
+%     if abs(L - round(L)) > 1e-12
+%         error('MODNUM must be square for QAM (4/16/64/...).');
+%     end
+%     paramD.bmax_initial = paramD.bmax_initial / L;  % ★重要（既存式のまま QAM bmax を合わせる）
+% end
 
 %% ======= my-side symbols (woTHP) =======
 x_train = generate_symbols(paramD, frameLength);
