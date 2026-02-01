@@ -30,7 +30,13 @@ param.Tc_but        = 1/1e9;
 
 win = struct('first_C',-7,'C_max',15,'first_F',param.first_F,'F_max',15);
 
-useUnitAvgPowerTx = true;   % 実験側が unit-average-power を想定なら true
+useUnitAvgPowerTx = false;   % 実験側が unit-average-power を想定なら true
+%% plot setting
+outDir = make_run_folder(pwd, paramD, win, "Dsimple_v2", struct('symR',symR,'nSamps',nSamps,'beta',beta,'nsymb',nsymb,'filtergain',filtergain,'fIF',fIF));
+
+saveOpt = struct('enable',true,'folder',outDir,'prefix',"Dsimple_v2",'formats',{{'png','fig'}},'dpi',200,'plotChannelCoeffTaps',true);
+
+
 
 %% ======= [EXP code] Path =======
 addpath(genpath('C:\Users\mittaus\Desktop\Dedar'));
@@ -143,7 +149,7 @@ ser = NaN; if isfield(Res_woE,'SER'), ser = Res_woE.SER; end
 fprintf('[FullEXP woTHP] BER=%.3e, SER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
     Res_woE.BER, ser, Res_woE.Hard_capacity, Res_woE.Soft_capacity, Res_woE.EVM, evmref);
 
-plot_txrx_overlay(IO_woE, coeffs_wo, paramD, x_train_tx, 'woTHP', 'D FullEXP woTHP', 200);
+plot_txrx_overlay(IO_woE, coeffs_wo, paramD, x_train_tx, 'woTHP', 'D FullEXP woTHP', 200, saveOpt);
 
 %% -------------------------------------------------------------
 %% (D2) THP generate
@@ -198,7 +204,10 @@ ser = NaN; if isfield(Res_wE,'SER'), ser = Res_wE.SER; end
 fprintf('[FullEXP wTHP ] BER=%.3e, SER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
     Res_wE.BER, ser, Res_wE.Hard_capacity, Res_wE.Soft_capacity, Res_wE.EVM, evmref);
 
-plot_freqresp_eqchange(D_woE, D_wE, win, paramD, "D FullEXP", coeffs_wo);
-plot_txrx_overlay(IO_wE, coeffs_w_eval, paramD, x_train_tx, 'wTHP', 'D FullEXP wTHP', 200, TX_D.dk);
+plot_freqresp_eqchange(D_woE, D_wE, win, paramD, "D FullEXP", coeffs_wo, saveOpt);
+plot_txrx_overlay(IO_wE, coeffs_w_eval, paramD, x_train_tx, 'wTHP', 'D FullEXP wTHP', 200, TX_D.dk, saveOpt);
+
+save(fullfile(outDir,'workspace_all.mat'),'-v7.3'); 
+
 
 %% ================= end =================

@@ -30,11 +30,17 @@ param.beta          = 0.35;
 param.Tc_but        = 1/1e9;
 
 win = struct('first_C',-7,'C_max',15,'first_F',param.first_F,'F_max',15);
+%% plot setting
+outDir = make_run_folder(pwd, paramD, win, "Dloop", struct('symR',symR,'nSamps',nSamps,'beta',beta,'nsymb',nsymb,'filtergain',filtergain,'fIF',fIF));
+
+saveOpt = struct('enable',true,'folder',outDir,'prefix',"Dloop",'formats',{{'png','fig'}},'dpi',200,'plotChannelCoeffTaps',true);
+
+
 
 %% loop settings
 Nrep = 10;                         % ★ここを変更
 doRegenerateSymbolsEachRun = true; % true: 毎回新しいx_train, false: 固定
-useUnitAvgPowerTx = true;          % true: 理想星座の平均電力で unit-average-power 化
+useUnitAvgPowerTx = false;          % true: 理想星座の平均電力で unit-average-power 化
 printEachRun = true;               % 途中経過を表示
 pause_between_runs_s = 0.5;        % 実機が不安定なら増やす
 
@@ -81,14 +87,14 @@ paramD.TXD_N = frameLength;
 % thp_prepare_tx は bmax = bmax_initial*(M/2) を使う前提。
 % 望み: bmax = (user_bmax_initial)*(sqrt(M)/2)
 % => paramD.bmax_initial = user_bmax_initial / sqrt(M)
-modtype = upper(string(paramD.MODTYPE));
-if modtype == "QAM"
-    L = sqrt(double(paramD.MODNUM));
-    if abs(L - round(L)) > 1e-12
-        error('MODNUM must be square for QAM (4/16/64/...).');
-    end
-    paramD.bmax_initial = paramD.bmax_initial / L;
-end
+% modtype = upper(string(paramD.MODTYPE));
+% if modtype == "QAM"
+%     L = sqrt(double(paramD.MODNUM));
+%     if abs(L - round(L)) > 1e-12
+%         error('MODNUM must be square for QAM (4/16/64/...).');
+%     end
+%     paramD.bmax_initial = paramD.bmax_initial / L;
+% end
 
 %% ---- unit-average-power scaling (theoretical, constant) ----
 txScale = 1.0;
@@ -303,4 +309,6 @@ fprintf('[wTHP  mean] BER=%.3e, SER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%
 fprintf('\n[NormRef ratio mean] mean(|w/wo|)=%.4f, mean(angle)=%.2f deg\n', ...
     mean(abs(ratio_normref),'omitnan'), mean(angle(ratio_normref)*180/pi,'omitnan'));
 
+
+save(fullfile(outDir,'workspace_all.mat'),'-v7.3'); 
 %% ================= end =================

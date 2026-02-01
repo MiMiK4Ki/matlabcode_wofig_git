@@ -12,7 +12,7 @@
 % 追加(この回答で提示):
 %   chan_coeffs_to_chanframe_interp (離散coeffs→連続ChanFrame近似)
 
-clear; close all; clc;
+clear; close all;
 
 set(groot, 'DefaultAxesFontSize', 28);
 set(groot, 'DefaultTextFontSize', 28);
@@ -21,8 +21,8 @@ set(groot, 'DefaultColorbarFontSize', 28);
 
 
 %% (0) 共通パラメータ（ここだけ編集）
-param.cutoff_coeff  = 1;
-param.SNRdB         = 10;
+param.cutoff_coeff  = 1.4;
+param.SNRdB         = 20;
 param.first_F       = 0;
 param.bmax_initial  = 2;
 param.MODNUM        = 4;           % 8-PAM (=2M)
@@ -45,6 +45,11 @@ win = struct('first_C',-7,'C_max',15,'first_F',param.first_F,'F_max',15);
 % (1) 評価に使うシンボル列（共通）
 x_train = generate_symbols(param, param.TXD_N);
 Nsym_train = numel(x_train);
+%% plot setting
+outDir = make_run_folder(pwd, param, win, "A");
+
+saveOpt = struct('enable',true,'folder',outDir,'prefix',"Dsimple_v2",'formats',{{'png','fig'}},'dpi',200,'plotChannelCoeffTaps',true);
+
 
 %% ==============================================================
 %% (A) 理論ルート：チャネル=理論, IO=理論
@@ -96,7 +101,7 @@ evmref = NaN; if isfield(Res_th_wo,'EVMref'), evmref = Res_th_wo.EVMref; end
 fprintf('[Theory woTHP] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
     Res_th_wo.BER, Res_th_wo.Hard_capacity, Res_th_wo.Soft_capacity, Res_th_wo.EVM, evmref);
 
-plot_txrx_overlay(IO_th_wo, coeffs, param, x_train, 'woTHP', 'A5 Theory woTHP', 200);
+plot_txrx_overlay(IO_th_wo, coeffs, param, x_train, 'woTHP', 'A5 Theory woTHP', 200,saveOpt);
 
 
 %% (A6) THP送信列 → 理論IO（wTHP）→ 評価
@@ -119,11 +124,11 @@ evmref = NaN; if isfield(Res_th_w,'EVMref'), evmref = Res_th_w.EVMref; end
 fprintf('[Theory wTHP ] BER=%.3e, HardCap=%.3f, SoftCap=%.3f, EVM=%.3f%%, EVMref=%.3f%%\n', ...
     Res_th_w.BER, Res_th_w.Hard_capacity, Res_th_w.Soft_capacity, Res_th_w.EVM, evmref);
 
-plot_freqresp_eqchange(D_th_wo, D_th_w, win, param, "A Theory", coeffs);
+plot_freqresp_eqchange(D_th_wo, D_th_w, win, param, "A Theory", coeffs,saveOpt);
 
-plot_txrx_overlay(IO_th_w, coeffs_th_w_eval, param, x_train, 'wTHP', 'A6 Theory wTHP', 200, TX_th.dk);
+plot_txrx_overlay(IO_th_w, coeffs_th_w_eval, param, x_train, 'wTHP', 'A6 Theory wTHP', 200, TX_th.dk,saveOpt);
 
-
+save(fullfile(outDir,'workspace_all.mat'),'-v7.3'); 
 
 %% ==============================================================
 %% (B) 実験データからチャネル推定：チャネル=実験推定

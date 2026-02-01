@@ -1,14 +1,18 @@
-function [h_wo,h_w] = plot_freqresp_eqchange(D_wo, D_w, win, param, figTitle, coeffs_ch)
+function [h_wo,h_w] = plot_freqresp_eqchange(D_wo, D_w, win, param, figTitle, coeffs_ch, saveOpt)
 % plot_freqresp_eqchange
 %   等化前(woTHP)と等化後(wTHP)で「有効チャネル」をLS推定し、
 %   周波数応答（Magnitude + Phase）を比較表示する。
 %
-% 入力:
-%   D_wo, D_w : evaluate_from_io の第2出力（D.tx_al, D.rx_soft_al を含む）
-%   win       : first_C, C_max（推定したいtap範囲）
-%   param     : Tc_but, cutoff_coeff
-%   figTitle  : 図のタイトル文字列
-%   coeffs_ch : (任意) 物理チャネル係数を重ねるなら渡す（coeffs.ChannelCoeff）
+% [ADD]
+%   - saveOpt を渡すと、生成した図を意味ある名前で保存（未指定は保存OFF）
+%   - saveOpt.plotChannelCoeffTaps=true で ChannelCoeff(正規化)タップ図も追加で出す
+
+if nargin < 7, saveOpt = []; end
+opt = freq_parse_saveopt(saveOpt, param, win, figTitle);
+
+% 保存用トラッカ（figure作成時にラベル付け）
+figList  = gobjects(0);
+nameList = strings(0);
 
 mRange = win.first_C:win.C_max;
 
@@ -33,7 +37,6 @@ H_w  = fftshift(fft(h_w,  Nfft));
 
 % (任意) 物理チャネル
 has_ch = (nargin >= 6 && ~isempty(coeffs_ch));
-
 if has_ch
     g = coeffs_ch.ChannelCoeff(:).';
     if numel(g) ~= numel(mRange)
@@ -47,7 +50,7 @@ end
 % =========================================================
 % (1) Magnitude [dB]
 % =========================================================
-figure; hold on;
+figH = figure; hold on;
 plot(f/1e9, 20*log10(abs(H_wo)+1e-12), 'DisplayName','effective woTHP (LS)');
 plot(f/1e9, 20*log10(abs(H_w )+1e-12), 'DisplayName','effective wTHP  (LS)');
 if has_ch
@@ -57,11 +60,12 @@ grid on;
 xlabel('Frequency [GHz]'); ylabel('Magnitude [dB]');
 title(['Freq response MAG (before/after eq): ' char(figTitle)]);
 legend('show','Location','best');
+[figList, nameList] = freq_push(figList, nameList, figH, "MAG_dB");
 
 % =========================================================
 % (2) Phase [rad]  (unwrap)
 % =========================================================
-figure; hold on;
+figH = figure; hold on;
 plot(f/1e9, unwrap(angle(H_wo)), 'DisplayName','phase woTHP (LS)');
 plot(f/1e9, unwrap(angle(H_w )), 'DisplayName','phase wTHP  (LS)');
 if has_ch
@@ -71,10 +75,10 @@ grid on;
 xlabel('Frequency [GHz]'); ylabel('Phase [rad] (unwrap)');
 title(['Freq response PHASE (before/after eq): ' char(figTitle)]);
 legend('show','Location','best');
+[figList, nameList] = freq_push(figList, nameList, figH, "PHASE_rad");
 
 % =========================================================
-% (3) 参考：Group delay [s]（位相の傾き）
-%     角周波数 w=2*pi*f なので tau = - d(phi)/dw
+% (3) Group delay [ps]
 % =========================================================
 w = 2*pi*f;  % [rad/s]
 phi_wo = unwrap(angle(H_wo));
@@ -83,7 +87,7 @@ phi_w  = unwrap(angle(H_w));
 tau_wo = -gradient(phi_wo, w);  % [s]
 tau_w  = -gradient(phi_w , w);  % [s]
 
-figure; hold on;
+figH = figure; hold on;
 plot(f/1e9, tau_wo*1e12, 'DisplayName','group delay woTHP (LS)');
 plot(f/1e9, tau_w *1e12, 'DisplayName','group delay wTHP  (LS)');
 if has_ch
@@ -95,35 +99,77 @@ grid on;
 xlabel('Frequency [GHz]'); ylabel('Group delay [ps]');
 title(['Group delay (from phase slope): ' char(figTitle)]);
 legend('show','Location','best');
+[figList, nameList] = freq_push(figList, nameList, figH, "GROUP_DELAY_ps");
 
 % =========================================================
-% (4) time-domain taps
+% (4) time-domain taps (Real/Imag)
 % =========================================================
-figure; hold on;
+figH = figure; hold on;
 stem(mRange , real(h_wo), 'DisplayName','h\_eff woTHP (real)');
 stem(mRange + param.first_F, real(h_w ), 'DisplayName','h\_eff wTHP  (real)');
 grid on; xlabel('tap index m'); ylabel('tap value');
 title(['Effective taps (LS) [Real]: ' char(figTitle)]);
 legend('show','Location','best');
+[figList, nameList] = freq_push(figList, nameList, figH, "TAPS_REAL");
 
 if ~isreal(h_wo) || ~isreal(h_w)
-    figure; hold on;
+    figH = figure; hold on;
     stem(mRange , imag(h_wo), 'DisplayName','h\_eff woTHP (imag)');
     stem(mRange + param.first_F, imag(h_w ), 'DisplayName','h\_eff wTHP  (imag)');
     grid on; xlabel('tap index m'); ylabel('tap value');
     title(['Effective taps (LS) [Imag]: ' char(figTitle)]);
     legend('show','Location','best');
+    [figList, nameList] = freq_push(figList, nameList, figH, "TAPS_IMAG");
 end
 
 print_metrics = @(name, hvec) local_print_metrics(name, hvec, mRange);
-
 print_metrics("h_wo (LS)", h_wo);
 print_metrics("h_w  (LS)", h_w);
+if has_ch, print_metrics("ChannelCoeff (given)", g); end
 
-if has_ch
-    print_metrics("ChannelCoeff (given)", g);
+% =========================================================
+% (5) [ADD] ChannelCoeff taps plot (normalized by m=0)
+% =========================================================
+doChTapPlot = freq_getflag(opt,'plotChannelCoeffTaps', false);
+if doChTapPlot && ~isempty(coeffs_ch) && isfield(coeffs_ch,'ChannelCoeff') && ~isempty(coeffs_ch.ChannelCoeff)
+
+    gplot = coeffs_ch.ChannelCoeff(:).';
+    if isfield(coeffs_ch,'first_C') && ~isempty(coeffs_ch.first_C)
+        mplot = coeffs_ch.first_C + (0:numel(gplot)-1);
+    else
+        mplot = (win.first_C) + (0:numel(gplot)-1);
+    end
+
+    idx0g = find(mplot==0, 1);
+    if ~isempty(idx0g) && abs(gplot(idx0g)) > 0
+        gplot_n = gplot / gplot(idx0g);
+    else
+        gplot_n = gplot;
+    end
+
+    figH = figure; hold on;
+    stem(mplot, real(gplot_n), 'filled', 'DisplayName','ChannelCoeff real');
+    grid on; xlabel('tap index m'); ylabel('value');
+    title(['ChannelCoeff taps (norm @ m=0) [Real]: ' char(figTitle)]);
+    legend('show','Location','best');
+    [figList, nameList] = freq_push(figList, nameList, figH, "CHCOEFF_TAPS_REAL");
+
+    if ~isreal(gplot_n)
+        figH = figure; hold on;
+        stem(mplot, imag(gplot_n), 'filled', 'DisplayName','ChannelCoeff imag');
+        grid on; xlabel('tap index m'); ylabel('value');
+        title(['ChannelCoeff taps (norm @ m=0) [Imag]: ' char(figTitle)]);
+        legend('show','Location','best');
+        [figList, nameList] = freq_push(figList, nameList, figH, "CHCOEFF_TAPS_IMAG");
+    end
 end
+
+% =========================================================
+% [ADD] save all labeled figures
+% =========================================================
+freq_save_figlist(figList, nameList, opt, figTitle, "plot_freqresp_eqchange");
 end
+
 
 function local_print_metrics(name, h, m)
     H0  = sum(h);
@@ -134,4 +180,163 @@ function local_print_metrics(name, h, m)
         name, real(H0), abs(Hpi), 20*log10(abs(Hpi)/abs(H0)));
     fprintf('      Se=%.4f, So=%.4f  => H0=Se+So=%.4f, Hpi=Se-So=%.4f\n', ...
         real(Se), real(So), real(Se+So), real(Se-So));
+end
+
+%% =========================
+%% [ADD] save helpers (freq)
+%% =========================
+function [figList, nameList] = freq_push(figList, nameList, figH, label)
+    figList(end+1)  = figH;
+    nameList(end+1) = string(label);
+end
+
+function opt = freq_parse_saveopt(saveOptArg, param, win, figTitle)
+    opt = struct();
+    opt.enable = false;
+    opt.folder = '';
+    opt.prefix = 'freq';
+    opt.formats = {'png','fig'};
+    opt.dpi = 200;
+    opt.plotChannelCoeffTaps = [];
+
+    if nargin < 1 || isempty(saveOptArg)
+        return;
+    end
+
+    if islogical(saveOptArg) && isscalar(saveOptArg)
+        opt.enable = logical(saveOptArg);
+    elseif ischar(saveOptArg) || (isstring(saveOptArg) && isscalar(saveOptArg))
+        opt.enable = true;
+        opt.folder = char(saveOptArg);
+    elseif isstruct(saveOptArg)
+        if isfield(saveOptArg,'enable'), opt.enable = logical(saveOptArg.enable); else, opt.enable = true; end
+        if isfield(saveOptArg,'doSave'), opt.enable = logical(saveOptArg.doSave); end
+
+        if isfield(saveOptArg,'folder'), opt.folder = char(string(saveOptArg.folder)); end
+        if isfield(saveOptArg,'outDir'), opt.folder = char(string(saveOptArg.outDir)); end
+
+        if isfield(saveOptArg,'prefix'), opt.prefix = char(string(saveOptArg.prefix)); end
+        if isfield(saveOptArg,'formats'), opt.formats = saveOptArg.formats; end
+        if isfield(saveOptArg,'dpi'), opt.dpi = double(saveOptArg.dpi); end
+        if isfield(saveOptArg,'plotChannelCoeffTaps'), opt.plotChannelCoeffTaps = logical(saveOptArg.plotChannelCoeffTaps); end
+    else
+        return;
+    end
+
+    if ~opt.enable
+        return;
+    end
+
+    if isempty(opt.folder)
+        opt.folder = freq_make_default_folder(param, win, figTitle);
+    end
+    if ~exist(opt.folder,'dir'), mkdir(opt.folder); end
+
+    if isempty(opt.plotChannelCoeffTaps)
+        opt.plotChannelCoeffTaps = true; % 保存ONなら taps 図も基本ON
+    end
+end
+
+function tf = freq_getflag(opt, field, defaultVal)
+    tf = defaultVal;
+    if isstruct(opt) && isfield(opt, field) && ~isempty(opt.(field))
+        tf = logical(opt.(field));
+    end
+end
+
+function outDir = freq_make_default_folder(param, win, figTitle)
+    ts = datestr(now,'yyyymmdd_HHMMSS');
+    modtype = "NA";
+    if isfield(param,'MODTYPE') && ~isempty(param.MODTYPE)
+        modtype = upper(string(param.MODTYPE));
+    end
+
+    tokens = [
+        "freqresp"
+        "mod_" + modtype
+        "M_"   + string(param.MODNUM)
+        "SNR_" + freq_numtag(param.SNRdB)
+        "NoSpS_" + string(param.NoSpS)
+        "N_" + string(param.TXD_N)
+        "bmax_" + freq_numtag(param.bmax_initial)
+        "C_" + string(win.first_C) + "to" + string(win.C_max)
+        "F_" + string(win.first_F) + "to" + string(win.F_max)
+        "tag_" + string(figTitle)
+    ];
+
+    name = ts + "__" + strjoin(tokens','__');
+    name = freq_sanitize(name);
+
+    outDir = fullfile(pwd, 'results_plots', name);
+end
+
+function freq_save_figlist(figList, nameList, opt, figTitle, funcName)
+    if ~isstruct(opt) || ~isfield(opt,'enable') || ~opt.enable
+        return;
+    end
+    if isempty(figList), return; end
+
+    baseTitle = freq_sanitize(string(figTitle));
+
+    for i = 1:numel(figList)
+        figH = figList(i);
+        if ~isvalid(figH), continue; end
+
+        plotKind = freq_sanitize(nameList(i));
+        base = sprintf('%s__%s__%s__%02d__%s', opt.prefix, funcName, baseTitle, i, plotKind);
+        base = freq_sanitize(base);
+        freq_save_one_figure(figH, opt, base);
+    end
+end
+
+function freq_save_one_figure(figH, opt, baseName)
+    fmts = opt.formats;
+    if isstring(fmts), fmts = cellstr(fmts); end
+
+    for k = 1:numel(fmts)
+        fmt = lower(string(fmts{k}));
+        outBase = fullfile(opt.folder, baseName);
+        switch fmt
+            case "fig"
+                try, savefig(figH, outBase + ".fig"); catch, end
+            case "png"
+                try
+                    if exist('exportgraphics','file') == 2
+                        exportgraphics(figH, outBase + ".png", 'Resolution', opt.dpi);
+                    else
+                        print(figH, outBase + ".png", '-dpng', sprintf('-r%d', opt.dpi));
+                    end
+                catch
+                end
+            case "pdf"
+                try
+                    if exist('exportgraphics','file') == 2
+                        exportgraphics(figH, outBase + ".pdf");
+                    else
+                        print(figH, outBase + ".pdf", '-dpdf');
+                    end
+                catch
+                end
+        end
+    end
+end
+
+function s = freq_numtag(x)
+    % 小数点/マイナス/指数を安全にトークン化:  -0.35 -> m0p35, 1e-3 -> 1em3
+    if isempty(x) || ~isfinite(x)
+        s = "nan";
+        return;
+    end
+    s = string(sprintf('%.6g', double(x)));
+    s = strrep(s, "-", "m");
+    s = strrep(s, "+", "");
+    s = strrep(s, ".", "p");
+end
+
+function s = freq_sanitize(s)
+    s = string(s);
+    s = regexprep(s, '[\\/:*?"<>|]', '_');
+    s = regexprep(s, '\s+', '_');
+    s = regexprep(s, '_+', '_');
+    s = strip(s, '_');
 end

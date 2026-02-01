@@ -3,5 +3,8 @@
 *.fig
 *.mex*
 *.p
+*.png
+*.jpg
+*.eps
 .DS_Store
 Thumbs.db
