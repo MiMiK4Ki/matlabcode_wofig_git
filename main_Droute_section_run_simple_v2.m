@@ -69,7 +69,8 @@ tracenum    = 3;
 
 Tc_exp = 1/symR;
 fs_exp = symR*nSamps;
-
+span = Fs_bb/1.28 %表示用に必要
+ACP = (1+beta)*symR*0.9 %ACP表示用
 %% ======= my-side paramD =======
 paramD = param;
 paramD.NoSpS = nSamps;

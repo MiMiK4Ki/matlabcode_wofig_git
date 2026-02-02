@@ -2,7 +2,7 @@ function outDir = make_run_folder(root, param, win, label, extra)
 % extra: 任意 struct（symR, nSamps, beta, nsymb, filtergain, fIF など入れたい値）
     if nargin < 5, extra = struct(); end
 
-    ts = datestr(now,'yyyymmdd_HHMMSS');
+    ts = datestr(now,'yyyymmdd');
 
     modtype = "NA";
     if isfield(param,'MODTYPE') && ~isempty(param.MODTYPE)
